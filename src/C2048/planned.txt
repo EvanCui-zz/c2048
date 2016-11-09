@@ -1,0 +1,6 @@
+﻿1, horizontal movement
+2, high number design
+3, sound
+4, bonus
+5, time
+6, design for skills
