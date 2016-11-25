@@ -5,18 +5,9 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:C2048"
         mc:Ignorable="d"
-        Title="MainWindow" Height="600" Width="380" KeyDown="Window_KeyDown">
+        Title="MainWindow" Height="600" Width="380" KeyDown="Window_KeyDown" Loaded="Window_Loaded">
     <StackPanel>
-        <Canvas Name="canvas" Height="500" Width="350">
-            <Canvas.Background>
-                <LinearGradientBrush EndPoint="0.5,1" StartPoint="0.5,0">
-                    <GradientStop Color="White" Offset="0"/>
-                    <GradientStop Color="#FF49ACE0" Offset="1"/>
-                </LinearGradientBrush>
-            </Canvas.Background>
-
-        </Canvas>
-
+        <Canvas Name="canvas" Height="500" Width="350" MouseMove="canvas_MouseMove" MouseDown="canvas_MouseDown" Background="#FF555470" />
         <TextBlock Name="status" Text="Current status" />
     </StackPanel>
 </Window>

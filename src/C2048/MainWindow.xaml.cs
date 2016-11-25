@@ -28,10 +28,11 @@ namespace C2048
 
         private Random r = new Random(DateTime.Now.Millisecond);
 
-        private readonly Duration CombineDuration = new Duration(TimeSpan.FromMilliseconds(100));
-        private readonly Duration FallDuration = new Duration(TimeSpan.FromMilliseconds(500));
+        private readonly Duration CombineDuration = new Duration(TimeSpan.FromMilliseconds(80));
+        private readonly Duration FallDuration = new Duration(TimeSpan.FromMilliseconds(100));
 
         private NumberBlock[,] blocks = new NumberBlock[7, 10];
+        private SemaphoreSlim fallSemaphore = new SemaphoreSlim(1, 1);
 
         private class Coordinate
         {
@@ -56,13 +57,16 @@ namespace C2048
         }
 
         private bool[] HotColumns = new bool[MaxX];
+        Rectangle highlight = new Rectangle();
 
         public MainWindow()
         {
             InitializeComponent();
+            this.ActiveColumn = 0;
         }
 
-        private Coordinate Current { get; set; }
+        private int ActiveColumn { get; set; }
+        private double ActiveLeft { get { return this.ActiveColumn * BlockSize; } }
 
         public void PutNewBlock(int number)
         {
@@ -70,20 +74,23 @@ namespace C2048
             nb.Width = nb.Height = BlockSize;
             this.canvas.Children.Add(nb);
             Canvas.SetTop(nb, 0.0);
-            Canvas.SetLeft(nb, 0.0);
+            Canvas.SetLeft(nb, this.ActiveColumn * BlockSize);
 
-            int x = 0;
-            this.HotColumns[x] = true;
-            this.blocks[x, 0] = nb;
+            this.HotColumns[this.ActiveColumn] = true;
+            this.blocks[this.ActiveColumn, 0] = nb;
             nb.IsHot = true;
-            this.Current = new Coordinate(0, 0);
         }
 
         public void MoveTo(int c)
         {
-            var b = this.blocks[c, this.Current.Y] = Interlocked.Exchange(ref this.blocks[this.Current.X, this.Current.Y], null);
-            this.Current.X = c;
-            Canvas.SetLeft(b, this.Current.X * BlockSize);
+            var b = this.blocks[c, 0] = Interlocked.Exchange(ref this.blocks[this.ActiveColumn, 0], null);
+            this.ActiveColumn = c;
+            if (b != null)
+            {
+                Canvas.SetLeft(b, c * BlockSize);
+            }
+
+            Canvas.SetLeft(highlight, this.ActiveLeft);
         }
 
         public Task<bool> Combine()
@@ -133,14 +140,9 @@ namespace C2048
                 }
             }
 
-            combineStory.Begin();
-
             this.HotColumns = newHotColumns;
 
-            TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-            combineStory.Completed += (s, e) => { tcs.SetResult(combined); };
-            combineStory.Begin();
-            return tcs.Task;
+            return combineStory.BeginAsync(combined);
         }
 
         public Task<bool> Fall()
@@ -180,22 +182,54 @@ namespace C2048
                 }
             }
 
-            TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-            fallStory.Completed += (s,e) => { tcs.SetResult(fallen); };
-            fallStory.Begin();
-            return tcs.Task;
+            return fallStory.BeginAsync(fallen);
         }
 
         private int GetRandom()
         {
             int p = r.Next(6);
             int re = 2;
-            while(p-- > 0)
+            while (p-- > 0)
             {
                 re *= 2;
             }
 
             return re;
+        }
+
+        private async Task FallAndCombine()
+        {
+            if (this.fallSemaphore.CurrentCount == 0) { return; }
+
+            try
+            {
+                await this.fallSemaphore.WaitAsync();
+                this.status.Text = this.fallSemaphore.CurrentCount.ToString();
+                bool loop = true;
+
+                while (loop)
+                {
+                    await this.Fall();
+                    this.status.Text = "after fall";
+                    loop = await this.Combine();
+                    this.status.Text = "after combine.";
+                }
+                this.status.Text = "after loop";
+
+                this.PutNewBlock(this.GetRandom());
+                this.status.Text = "after put";
+                int release = this.fallSemaphore.Release();
+                this.status.Text = this.fallSemaphore.CurrentCount.ToString() + " " + release.ToString();
+            }
+            catch (Exception ex)
+            {
+                this.status.Text = ex.ToString();
+            }
+            finally
+            {
+                //int release = this.fallSemaphore.Release();
+                //this.status.Text = this.fallSemaphore.CurrentCount.ToString() + " " + release.ToString();
+            }
         }
 
         private async void Window_KeyDown(object sender, KeyEventArgs e)
@@ -208,15 +242,7 @@ namespace C2048
 
                 case Key.F:
                 case Key.Space:
-                    bool loop = true;
-
-                    while (loop)
-                    {
-                        await this.Fall();
-                        loop = await this.Combine();
-                    }
-
-                    this.PutNewBlock(this.GetRandom());
+                    await this.FallAndCombine();
                     break;
 
                 case Key.C:
@@ -232,6 +258,29 @@ namespace C2048
 
                     break;
             }
+        }
+
+        private void canvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            var point = e.GetPosition(this.canvas);
+            var column = (int)(point.X / BlockSize);
+            if (column > 6) column = 6;
+            this.MoveTo(column);
+        }
+
+        private async void canvas_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            await this.FallAndCombine();
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            highlight.Width = BlockSize;
+            highlight.Height = this.canvas.Height;
+            highlight.Fill = Brushes.White;
+            highlight.Opacity = 0.2;
+            this.canvas.Children.Add(highlight);
+            Canvas.SetLeft(highlight, this.ActiveLeft);
         }
     }
 }
